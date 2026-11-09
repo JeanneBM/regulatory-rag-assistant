@@ -6,6 +6,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -59,19 +60,72 @@ def parse_articles(html, act, url, fetched_at):
     return chunks
 
 
-def ingest():
+def require_coverage(chunks, act):
+    expected = 113 if act == "AI_ACT" else 64
+    if not {str(i) for i in range(1, expected + 1)} <= {c["article"] for c in chunks}:
+        raise ValueError(f"{act}: incomplete article coverage")
+
+
+def fetch_official_html(url):
+    for _ in range(5):
+        target = urlsplit(url)
+        if (target.scheme != "https" or target.netloc not in {
+            "eur-lex.europa.eu", "publications.europa.eu", "op.europa.eu", "data.europa.eu"
+        }):
+            raise ValueError("redirect outside the allowed official HTTPS sources")
+        response = requests.get(
+            url, timeout=(5, 25), allow_redirects=False,
+            headers={"Accept": "text/html", "Accept-Language": "en, eng;q=0.9"},
+        )
+        if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("Location"):
+            url = urljoin(url, response.headers["Location"])
+            continue
+        if response.status_code != 200:
+            raise ValueError(f"HTTP {response.status_code}")
+        return response.text, url
+    raise ValueError("too many official source redirects")
+
+
+def download_act(act, canonical_url, now):
+    celex = canonical_url.split("CELEX:", 1)[1]
+    year, number = celex[1:5], int(celex[6:])
+    candidates = (
+        canonical_url,
+        f"https://eur-lex.europa.eu/eli/reg/{year}/{number}/oj/eng",
+        f"https://publications.europa.eu/resource/celex/{celex}.ENG.html",
+        f"https://publications.europa.eu/resource/celex/{celex}",
+    )
+    failures = []
+    for url in candidates:
+        try:
+            html, fetched_from = fetch_official_html(url)
+            chunks = parse_articles(html, act, canonical_url, now)
+            require_coverage(chunks, act)
+        except (ValueError, requests.RequestException) as exc:
+            failures.append(f"{url}: {exc}")
+            continue
+        for chunk in chunks:
+            chunk["fetched_from"] = fetched_from
+        return chunks
+    raise RuntimeError(f"{act}: could not download a complete official document. "
+                       + " | ".join(failures))
+
+
+def ingest(*, ai_act_html=None, dora_html=None):
+    local_sources = {"AI_ACT": ai_act_html, "DORA": dora_html}
     chunks = []
     now = datetime.now(timezone.utc).isoformat()
     for act, url in SOURCES.items():
-        response = requests.get(url, timeout=60, allow_redirects=False)
-        if response.status_code != 200:
-            raise RuntimeError(f"{act}: HTTP {response.status_code}; import stopped")
-        parsed = parse_articles(response.text, act, url, now)
-        # Fail closed on partial pages or unexpected document structure.
-        expected = 113 if act == "AI_ACT" else 64
-        numbers = {c["article"] for c in parsed}
-        if not {str(i) for i in range(1, expected + 1)} <= numbers:
-            raise ValueError(f"{act}: incomplete article coverage")
+        local_path = local_sources[act]
+        if local_path is None:
+            chunks.extend(download_act(act, url, now))
+            continue
+        html = local_path.read_text(encoding="utf-8-sig")
+        parsed = parse_articles(html, act, url, now)
+        require_coverage(parsed, act)
+        for chunk in parsed:
+            chunk["import_method"] = "local_html"
+            chunk["imported_at"] = chunk.pop("fetched_at")
         chunks.extend(parsed)
     DATA.parent.mkdir(parents=True, exist_ok=True)
     temporary = DATA.with_suffix(".tmp")
@@ -146,7 +200,7 @@ def answer(question, evidence):
 
 def load_corpus():
     if not DATA.exists():
-        raise FileNotFoundError("Run python rag.py ingest first")
+        ingest()
     return json.loads(DATA.read_text(encoding="utf-8"))
 
 
@@ -154,11 +208,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["ingest", "ask"])
     parser.add_argument("question", nargs="?", default="")
+    parser.add_argument("--ai-act-html", type=Path, help="Saved English EUR-Lex AI Act HTML")
+    parser.add_argument("--dora-html", type=Path, help="Saved English EUR-Lex DORA HTML")
     args = parser.parse_args()
     if args.command == "ingest":
-        print(f"Indexed {ingest()} chunks")
+        try:
+            count = ingest(ai_act_html=args.ai_act_html, dora_html=args.dora_html)
+        except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
+            parser.exit(1, f"Import failed: {exc}\n")
+        print(f"Indexed {count} chunks")
+    elif args.ai_act_html is not None or args.dora_html is not None:
+        parser.error("local HTML options are only supported with ingest")
     else:
         if not args.question.strip():
             parser.error("ask requires a question")
-        print(json.dumps(answer(args.question, retrieve(args.question, load_corpus())),
+        try:
+            corpus = load_corpus()
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.exit(1, f"Could not load corpus: {exc}\n")
+        print(json.dumps(answer(args.question, retrieve(args.question, corpus)),
                          ensure_ascii=False, indent=2))

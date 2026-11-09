@@ -41,3 +41,79 @@ def test_parser_preserves_article_and_excludes_annex():
 def test_invalid_source_rejected():
     with pytest.raises(ValueError):
         parse_articles("<p>Please verify you are human</p>", "DORA", "url", "date")
+
+@pytest.mark.parametrize("complete", [True, False])
+def test_saved_eurlex_html_uses_coverage_guard(monkeypatch, tmp_path, complete):
+    import rag
+
+    def saved_act(name, count):
+        path = tmp_path / name
+        path.write_text("".join(f"<p>Article {i}</p><p>{'Article text. ' * 10}</p>"
+                                for i in range(1, count + 1)), encoding="utf-8")
+        return path
+
+    def no_network(*args, **kwargs):
+        pytest.fail("Local HTML import attempted a network request")
+
+    corpus = tmp_path / "corpus.json"
+    corpus.write_text("previous corpus", encoding="utf-8")
+    monkeypatch.setattr(rag, "DATA", corpus)
+    monkeypatch.setattr(rag.requests, "get", no_network)
+    ai_act = saved_act("ai-act.html", 113)
+    dora = saved_act("dora.html", 64 if complete else 63)
+    if not complete:
+        with pytest.raises(ValueError, match="DORA: incomplete article coverage"):
+            rag.ingest(ai_act_html=ai_act, dora_html=dora)
+        assert corpus.read_text(encoding="utf-8") == "previous corpus"
+        return
+
+    assert rag.ingest(ai_act_html=ai_act, dora_html=dora) == 177
+    chunk = rag.load_corpus()[-1]
+    assert chunk["import_method"] == "local_html"
+    assert chunk["url"] == rag.SOURCES["DORA"]
+    assert "imported_at" in chunk
+
+def test_first_load_tries_official_fallback_and_reuses_corpus(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    import rag
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        if url == rag.SOURCES["AI_ACT"]:
+            return SimpleNamespace(status_code=202)
+        count = 113 if "/2024/" in url else 64
+        html = "".join(f"<p>Article {i}</p><p>{'Article text. ' * 10}</p>"
+                       for i in range(1, count + 1))
+        return SimpleNamespace(status_code=200, text=html)
+
+    monkeypatch.setattr(rag, "DATA", tmp_path / "corpus.json")
+    monkeypatch.setattr(rag.requests, "get", get)
+    chunks = rag.load_corpus()
+    assert len(chunks) == 177
+    assert calls == [
+        rag.SOURCES["AI_ACT"],
+        "https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng",
+        rag.SOURCES["DORA"],
+    ]
+    assert chunks[0]["url"] == rag.SOURCES["AI_ACT"]
+    assert chunks[0]["fetched_from"] == calls[1]
+    assert rag.load_corpus() == chunks
+    assert len(calls) == 3
+
+
+def test_official_download_blocks_external_redirect(monkeypatch):
+    from types import SimpleNamespace
+    import rag
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        return SimpleNamespace(status_code=302, headers={"Location": "https://example.com/file"})
+
+    monkeypatch.setattr(rag.requests, "get", get)
+    with pytest.raises(ValueError, match="outside the allowed"):
+        rag.fetch_official_html(rag.SOURCES["DORA"])
+    assert calls == [rag.SOURCES["DORA"]]
