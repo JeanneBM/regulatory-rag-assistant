@@ -8,17 +8,26 @@ import textwrap
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import requests
 from bs4 import BeautifulSoup, NavigableString
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-DATA = Path(".local/corpus.json")
-SOURCES = {
-    "AI_ACT": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32024R1689",
-    "DORA": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32022R2554",
+DATA = Path(__file__).resolve().parent / ".local" / "corpus.json"
+# Adding an act: its CELEX number and the article count the import must cover.
+ACTS = {
+    "AI_ACT": {"celex": "32024R1689", "articles": 113},
+    "DORA": {"celex": "32022R2554", "articles": 64},
 }
+# Human-readable citation links. EUR-Lex answers scripts with an AWS WAF challenge
+# (HTTP 202), so text is downloaded from the Publications Office Cellar instead.
+EURLEX_URL = "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:{celex}"
+SOURCES = {act: EURLEX_URL.format(celex=meta["celex"]) for act, meta in ACTS.items()}
+CELLAR_URL = "https://publications.europa.eu/resource/celex/{celex}"
+CELLAR_HOST = "publications.europa.eu"
+USER_AGENT = "regulatory-rag-assistant (+https://github.com/JeanneBM/regulatory-rag-assistant)"
 CHUNK_CHARS = 3000
 BLOCK_TAGS = ["address", "article", "aside", "blockquote", "dd", "div", "dl", "dt",
               "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -106,24 +115,60 @@ def parse_articles(html, act, url, fetched_at):
     return chunks
 
 
-def ingest():
+def fetch_official_xhtml(celex):
+    """Download the English XHTML of an original act from the Publications Office Cellar.
+
+    Content negotiation on the CELEX resource answers 303 with the manifestation's
+    content stream. Cellar redirects to plain HTTP, so every hop is upgraded to HTTPS
+    and must stay on the Publications Office host.
+    """
+    url = CELLAR_URL.format(celex=celex)
+    headers = {"Accept": "application/xhtml+xml", "Accept-Language": "eng",
+               "User-Agent": USER_AGENT}
+    for _ in range(5):
+        parts = urlsplit(url)
+        if parts.scheme not in {"http", "https"} or parts.netloc != CELLAR_HOST:
+            raise ValueError(f"{celex}: redirect outside {CELLAR_HOST}: {url}")
+        url = urlunsplit(("https", *parts[1:]))
+        response = requests.get(url, headers=headers, timeout=(10, 120), allow_redirects=False)
+        if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("Location"):
+            url = urljoin(url, response.headers["Location"])
+            continue
+        if response.status_code != 200:
+            raise RuntimeError(f"{celex}: HTTP {response.status_code} from {url}")
+        if "html" not in response.headers.get("Content-Type", ""):
+            raise RuntimeError(f"{celex}: unexpected content type from {url}")
+        return response.text, url
+    raise RuntimeError(f"{celex}: too many redirects")
+
+
+def require_coverage(chunks, act):
+    """Fail closed when any article of the act is missing from the parsed text."""
+    found = {c["article"] for c in chunks}
+    missing = [n for n in range(1, ACTS[act]["articles"] + 1) if str(n) not in found]
+    if missing:
+        raise ValueError(f"{act}: incomplete article coverage (missing {missing[:5]})")
+
+
+def ingest(path=None):
+    """Download, parse and validate every act, then replace the corpus atomically.
+
+    Any failure leaves the previous corpus untouched.
+    """
+    target = DATA if path is None else Path(path)
     chunks = []
     now = datetime.now(timezone.utc).isoformat()
-    for act, url in SOURCES.items():
-        response = requests.get(url, timeout=60, allow_redirects=False)
-        if response.status_code != 200:
-            raise RuntimeError(f"{act}: HTTP {response.status_code}; import stopped")
-        parsed = parse_articles(response.text, act, url, now)
-        # Fail closed on partial pages or unexpected document structure.
-        expected = 113 if act == "AI_ACT" else 64
-        numbers = {c["article"] for c in parsed}
-        if not {str(i) for i in range(1, expected + 1)} <= numbers:
-            raise ValueError(f"{act}: incomplete article coverage")
+    for act, meta in ACTS.items():
+        html, fetched_from = fetch_official_xhtml(meta["celex"])
+        parsed = parse_articles(html, act, EURLEX_URL.format(celex=meta["celex"]), now)
+        require_coverage(parsed, act)
+        for chunk in parsed:
+            chunk.update(celex=meta["celex"], fetched_from=fetched_from)
         chunks.extend(parsed)
-    DATA.parent.mkdir(parents=True, exist_ok=True)
-    temporary = DATA.with_suffix(".tmp")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".tmp")
     temporary.write_text(json.dumps(chunks, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(DATA)
+    temporary.replace(target)
     return len(chunks)
 
 
@@ -210,8 +255,15 @@ def answer(question, evidence):
 
 
 def load_corpus():
-    if not DATA.exists():
-        raise FileNotFoundError("Run python rag.py ingest first")
+    """Return the local corpus, downloading it first if it is missing or lacks an act.
+
+    Adding an entry to ACTS is enough: the next run imports the new act.
+    """
+    if DATA.exists():
+        chunks = json.loads(DATA.read_text(encoding="utf-8"))
+        if set(ACTS) <= {c["act"] for c in chunks}:
+            return [c for c in chunks if c["act"] in ACTS]
+    ingest()
     return json.loads(DATA.read_text(encoding="utf-8"))
 
 
@@ -220,10 +272,14 @@ if __name__ == "__main__":
     parser.add_argument("command", choices=["ingest", "ask"])
     parser.add_argument("question", nargs="?", default="")
     args = parser.parse_args()
-    if args.command == "ingest":
-        print(f"Indexed {ingest()} chunks")
-    else:
-        if not args.question.strip():
-            parser.error("ask requires a question")
-        print(json.dumps(answer(args.question, retrieve(args.question, load_corpus())),
-                         ensure_ascii=False, indent=2))
+    if args.command == "ask" and not args.question.strip():
+        parser.error("ask requires a question")
+    try:
+        if args.command == "ingest":
+            print(f"Indexed {ingest()} chunks")
+        else:
+            corpus = load_corpus()
+            print(json.dumps(answer(args.question, retrieve(args.question, corpus)),
+                             ensure_ascii=False, indent=2))
+    except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
+        parser.exit(1, f"Failed: {exc}\n")

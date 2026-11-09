@@ -13,9 +13,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag import load_corpus, validate_claims
+from rag import ACTS, DATA, load_corpus, validate_claims
 
-INDEX = Path(".local/semantic-index.json")
+INDEX = DATA.with_name("semantic-index.json")
 
 
 class Claim(BaseModel):
@@ -143,7 +143,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["index", "ask"])
     parser.add_argument("question", nargs="?", default="")
-    parser.add_argument("--act", choices=["AI_ACT", "DORA"])
+    parser.add_argument("--act", choices=list(ACTS))
     parser.add_argument("--max-distance", type=float, default=0.8)
     args = parser.parse_args()
     if args.command == "ask" and not args.question.strip():
