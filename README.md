@@ -2,14 +2,14 @@
 
 An evidence-grounded research PoC for exploring the EU AI Act and DORA. Retrieves relevant article excerpts locally and optionally generates cited answers using Azure OpenAI.
 
-**Status:** Initial implementation. Source import is automatic and runs live in CI weekly; Azure generation still requires an integration run; no accuracy or legal-compliance claim is made.
+**Status:** Demonstrated PoC. The EU Publications Office import runs live in CI weekly. The [Windows smoke report](evidence/windows-retrieval-smoke-2026-11-09.md) records retrieval and a live Azure OpenAI answer with verified source quotations. Broader answer quality and legal compliance have not been evaluated.
 
 ## Scope
 
 - AI Act: Regulation (EU) 2024/1689.
 - DORA: Regulation (EU) 2022/2554.
 - Official English original published acts, downloaded automatically from the EU Publications Office (Cellar); citations link to EUR-Lex.
-- Article-level parsing, bounded overlapping chunks, source URLs, retrieval timestamps and SHA256 fingerprints.
+- Article-level parsing, paragraph-aligned chunks, source URLs, retrieval timestamps and SHA256 fingerprints.
 - Local TF-IDF retrieval and source filtering.
 - Optional Azure OpenAI generation with exact-quote and source-ID validation.
 - Streamlit interface, CLI and offline unit tests.
@@ -64,7 +64,7 @@ Offline tests cover relevant retrieval, unrelated queries, source filtering, fab
 
 Before calling this a validated RAG system:
 1. Inspect article boundaries in the live-ingested corpus (coverage is already checked in CI).
-2. Run an Azure request and inspect quotes, usage and refusal behavior.
+2. Extend the [live Azure smoke test](evidence/windows-retrieval-smoke-2026-11-09.md) to additional questions and verify refusal behavior in the generation path.
 3. Build 30–50 expert-reviewed questions with expected source articles.
 4. Measure retrieval recall, citation validity, answer support, abstention, latency and token use.
 5. Add adversarial document and question tests; do not infer security from prompt wording.

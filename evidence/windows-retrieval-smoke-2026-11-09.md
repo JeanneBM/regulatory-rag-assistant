@@ -13,7 +13,7 @@ The top hit links to the [official EUR-Lex text](https://eur-lex.europa.eu/legal
 
 The separate [GitHub Actions live-ingest run](https://github.com/JeanneBM/regulatory-rag-assistant/actions/runs/42643926005) verified download and article coverage for both acts: 113/113 AI Act articles and 64/64 DORA articles, with 260 total chunks. The Windows terminal output establishes the observed query behavior; it does not independently establish cold-cache state or full corpus coverage. Azure generation and validation of generated citations were outside this smoke test.
 
-# Azure OpenAI generation follow-up
+## Azure OpenAI generation follow-up
 
 Date: 9 November 2026  
 Tested revision: [`8ff0723`](https://github.com/JeanneBM/regulatory-rag-assistant/commit/8ff07233ed512ee5b541576fbc7d78ee660bc014) on `main`  
