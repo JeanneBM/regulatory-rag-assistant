@@ -1,4 +1,4 @@
-beautifulsoup4>=4.12,<5
+beautifulsoup4>=4.15.0,<5
 requests>=2.34.2,<3
 scikit-learn>=1.5,<2
 openai>=1.55,<3
