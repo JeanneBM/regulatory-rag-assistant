@@ -1,0 +1,44 @@
+name: Live ingest
+# Downloads the acts from the EU Publications Office, validates article coverage and
+# runs a retrieval smoke test. Catches upstream format or endpoint changes early.
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths: [rag.py, requirements.txt, .github/workflows/live-ingest.yml]
+permissions:
+  contents: read
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python rag.py ingest
+      - name: Summarise corpus and smoke-test retrieval
+        run: |
+          python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          from collections import Counter
+          from rag import ACTS, load_corpus, retrieve
+          chunks = load_corpus()
+          print("| Act | CELEX | Articles | Chunks | Source |\n|---|---|---|---|---|")
+          for act, meta in ACTS.items():
+              own = [c for c in chunks if c["act"] == act]
+              print(f"| {act} | {meta['celex']} | {len({c['article'] for c in own})} | {len(own)} | {own[0]['fetched_from']} |")
+          hits = retrieve("ICT risk management framework", chunks, "DORA")
+          assert hits and hits[0]["article"] == "6", [h["id"] for h in hits]
+          print(f"\nSmoke test: top DORA hit for 'ICT risk management framework' is {hits[0]['id']}.")
+          EOF
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: corpus
+          path: .local/corpus.json
+          retention-days: 30
