@@ -91,8 +91,18 @@ def azure(monkeypatch):
 
 def test_generation_path_validates_quotes(azure):
     chunk = parse(f"<p>Article 1</p><p>Providers shall keep logs. {BODY}</p>")[0]
-    azure(json.dumps(claim(chunk, "Providers shall keep logs.")))
-    assert rag.answer("Logs?", [chunk])["status"] == "answered"
+    azure(json.dumps({"claims": [{"statement": "Providers must keep logs.",
+                                 "excerpt_id": "E1", "quote": "Untrusted model text."}]}))
+    result = rag.answer("Logs?", [chunk])
+    assert result["status"] == "answered"
+    assert result["claims"] == [{
+        "statement": "Providers must keep logs.",
+        "source_id": chunk["id"],
+        "quote": chunk["text"].splitlines()[1],
+    }]
+    azure(json.dumps({"claims": [{"statement": "Unknown source.", "excerpt_id": "E999"}]}))
+    with pytest.raises(ValueError, match="unknown evidence excerpt"):
+        rag.answer("Logs?", [chunk])
     azure(json.dumps({"claims": []}))
     assert rag.answer("Logs?", [chunk])["status"] == "insufficient_evidence"
 

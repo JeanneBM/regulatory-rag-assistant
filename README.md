@@ -48,7 +48,7 @@ The parser excludes annexes and signatures from the final article. Text is extra
 
 ## Evidence boundaries
 
-Exact citation validation checks provenance and quotation integrity. Quotes are compared after Unicode NFKC normalisation, straight-quote substitution and whitespace collapsing, so layout differences do not reject a genuine quote; wording, punctuation and word order must still match, and one invalid claim rejects the whole answer. Truncated or content-filtered model replies are errors, not refusals. Validation does **not** prove that a generated statement follows from the quote, nor prevent every prompt injection. Retrieved documents and questions are treated as untrusted input.
+In the standard Python CLI and Streamlit, the model selects a numbered excerpt and the application copies the quotation directly from the retrieved text. Unknown excerpt IDs are rejected. Exact citation validation checks provenance and quotation integrity. Quotes are compared after Unicode NFKC normalisation, straight-quote substitution and whitespace collapsing, so layout differences do not reject a genuine quote; wording, punctuation and word order must still match, and one invalid claim rejects the whole answer. Truncated or content-filtered model replies are errors, not refusals. Validation does **not** prove that a generated statement follows from the quote, nor prevent every prompt injection. Retrieved documents and questions are treated as untrusted input.
 
 A positive retrieval score is not confidence. The 0.05 threshold is a provisional lexical cutoff requiring calibration. The application abstains for missing evidence and rejects malformed generated citations.
 
