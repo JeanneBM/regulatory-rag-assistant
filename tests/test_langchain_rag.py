@@ -38,6 +38,16 @@ def test_persisted_index_reuses_vectors_and_filters(tmp_path, chunks):
         load_index(embedding, path, "different")
 
 
+def test_stale_index_rejected_after_corpus_refresh(tmp_path, chunks):
+    path = tmp_path / "index.json"
+    embedding = LocalEmbeddings()
+    build_index(chunks, embedding, path, "test")
+    assert load_index(embedding, path, "test", corpus=chunks).index.ntotal == 2
+    refreshed = [dict(chunks[0], text=chunks[0]["text"] + " Amended."), chunks[1]]
+    with pytest.raises(ValueError, match="Corpus changed"):
+        load_index(embedding, path, "test", corpus=refreshed)
+
+
 def test_empty_evidence_skips_generation():
     model = RunnableLambda(lambda _: pytest.fail("No provider call expected"))
     assert answer("question", [], model)["status"] == "insufficient_evidence"
