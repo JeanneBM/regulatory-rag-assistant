@@ -2,7 +2,7 @@
 
 An evidence-grounded research PoC for exploring the EU AI Act and DORA. Retrieves relevant article excerpts locally and optionally generates cited answers using Azure OpenAI.
 
-**Status:** Demonstrated PoC. The EU Publications Office import runs live in CI weekly. The [Windows smoke report](evidence/windows-retrieval-smoke-2026-11-09.md) records retrieval and a live Azure OpenAI answer with verified source quotations. Broader answer quality and legal compliance have not been evaluated.
+**Status:** Demonstrated PoC. The EU Publications Office import runs live in CI weekly. The [Regulatory RAG validation report](evidence/regulatory-rag-validation-2026-11-09.md) records retrieval and a live Azure OpenAI answer with verified source quotations. Broader answer quality and legal compliance have not been evaluated.
 
 ## Scope
 
@@ -64,7 +64,7 @@ Offline tests cover relevant retrieval, unrelated queries, source filtering, fab
 
 Before calling this a validated RAG system:
 1. Inspect article boundaries in the live-ingested corpus (coverage is already checked in CI).
-2. Extend the [live Azure smoke test](evidence/windows-retrieval-smoke-2026-11-09.md) to additional questions and verify refusal behavior in the generation path.
+2. Extend the [live Azure smoke test](evidence/regulatory-rag-validation-2026-11-09.md) to additional questions and verify refusal behavior in the generation path.
 3. Build 30–50 expert-reviewed questions with expected source articles.
 4. Measure retrieval recall, citation validity, answer support, abstention, latency and token use.
 5. Add adversarial document and question tests; do not infer security from prompt wording.

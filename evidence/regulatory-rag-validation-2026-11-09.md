@@ -1,4 +1,6 @@
-# Windows retrieval smoke test
+# Regulatory RAG validation
+
+## Windows retrieval smoke test
 
 Date: 9 November 2026  
 Tested revision: [`b5303a7`](https://github.com/JeanneBM/regulatory-rag-assistant/commit/b5303a7769b21cf8cadaa39d2ed5226a6f5f15ae) on `main`  
