@@ -2,7 +2,7 @@
 
 An evidence-grounded research PoC for exploring the EU AI Act and DORA. Retrieves relevant article excerpts locally and optionally generates cited answers using Azure OpenAI.
 
-**Status:** Demonstrated PoC. The EU Publications Office import runs live in CI weekly. The [Regulatory RAG validation report](evidence/regulatory-rag-validation-2026-11-09.md) records retrieval and a live Azure OpenAI answer with verified source quotations. Broader answer quality and legal compliance have not been evaluated.
+**Status:** Demonstrated PoC. The EU Publications Office import runs live in CI weekly. The [Regulatory RAG validation report](evidence/regulatory-rag-validation-2026-11-09.md) records retrieval, a live Azure OpenAI smoke test, and a ten-question pilot with manual review. The pilot found gaps between some claims and their cited excerpts. Broader answer quality and legal compliance have not been established.
 
 ## Scope
 
@@ -42,13 +42,13 @@ Publications Office Cellar (official XHTML) → validated article extraction →
 
 EUR-Lex pages answer scripts with an AWS WAF JavaScript challenge (HTTP 202), so the importer does not scrape them. It asks the Cellar for the act's CELEX resource with `Accept: application/xhtml+xml` and `Accept-Language: eng`. Cellar answers 303 with the English XHTML manifestation. Cellar redirects to plain HTTP; every hop is upgraded to HTTPS and must stay on `publications.europa.eu`. Each chunk keeps the EUR-Lex link as its citation URL, plus `celex` and `fetched_from`.
 
-The corpus is downloaded on first use, and again whenever `ACTS` in `rag.py` lists an act the stored corpus lacks. Adding an act means adding its CELEX number and article count there. `python rag.py ingest` refreshes all acts explicitly. Any HTTP error, foreign redirect, unexpected content type or missing article fails closed and leaves the existing corpus intact. The [Live ingest workflow](.github/workflows/live-ingest.yml) runs the real import weekly and on changes to `rag.py`, and publishes the corpus as a build artifact. Original HTML is fingerprinted after text decoding; the digest identifies the fetched response text, not a legal version identifier.
+The corpus is downloaded on first use, and again whenever `ACTS` in `rag.py` lists an act the stored corpus lacks. Adding an act means adding its CELEX number and article count there. `python rag.py ingest` refreshes all acts explicitly. Any HTTP error, foreign redirect, unexpected content type or missing article fails closed and leaves the existing corpus intact. The [Live ingest workflow](.github/workflows/live-ingest.yml) runs the real import weekly and on relevant pull requests and pushes to `main`, and publishes the corpus as a build artifact. Original HTML is fingerprinted after text decoding; the digest identifies the fetched response text, not a legal version identifier.
 
 The parser excludes annexes and signatures from the final article. Text is extracted as one whitespace-normalised line per block element, so links, spans and footnote markers stay inside their sentence and cannot be mistaken for article headings. Long articles are split between paragraphs (or between words inside an oversized paragraph) into chunks of about 3000 characters, and each continuation chunk repeats the article heading. Paragraphs are not assigned identifiers. Each response can be traced to a corpus chunk.
 
 ## Evidence boundaries
 
-In the standard Python CLI and Streamlit, the model selects a numbered excerpt and the application copies the quotation directly from the retrieved text. Unknown excerpt IDs are rejected. Exact citation validation checks provenance and quotation integrity. Quotes are compared after Unicode NFKC normalisation, straight-quote substitution and whitespace collapsing, so layout differences do not reject a genuine quote; wording, punctuation and word order must still match, and one invalid claim rejects the whole answer. Truncated or content-filtered model replies are errors, not refusals. Validation does **not** prove that a generated statement follows from the quote, nor prevent every prompt injection. Retrieved documents and questions are treated as untrusted input.
+In the standard Python CLI and Streamlit, the model selects a numbered excerpt and the application copies the quotation directly from the retrieved text. Article headings and titles are excluded from Cellar citations. Unknown excerpt IDs and responses with more than three claims are rejected. Exact citation validation checks provenance and quotation integrity. Quotes are compared after Unicode NFKC normalisation, straight-quote substitution and whitespace collapsing, so layout differences do not reject a genuine quote; wording, punctuation and word order must still match, and one invalid claim rejects the whole answer. Truncated or content-filtered model replies are errors, not refusals. Validation does **not** prove that a generated statement follows from the quote, nor prevent every prompt injection. Retrieved documents and questions are treated as untrusted input.
 
 A positive retrieval score is not confidence. The 0.05 threshold is a provisional lexical cutoff requiring calibration. The application abstains for missing evidence and rejects malformed generated citations.
 
@@ -62,12 +62,14 @@ python -m pytest -q
 
 Offline tests cover relevant retrieval, unrelated queries, source filtering, fabricated citations/quotes, empty-evidence abstention, parsing of inline markup and long articles, quote normalisation, the generation path with a stubbed client (including truncated and filtered replies), stale semantic indexes, and the Cellar import against a fake server (HTTPS upgrade, foreign redirects, WAF status, content type, coverage, first-use and new-act downloads). GitHub Actions runs tests on pushes and pull requests, with actions pinned to commit SHAs and Dependabot proposing updates.
 
-Before calling this a validated RAG system:
-1. Inspect article boundaries in the live-ingested corpus (coverage is already checked in CI).
-2. Extend the [live Azure smoke test](evidence/regulatory-rag-validation-2026-11-09.md) to additional questions and verify refusal behavior in the generation path.
-3. Build 30–50 expert-reviewed questions with expected source articles.
-4. Measure retrieval recall, citation validity, answer support, abstention, latency and token use.
-5. Add adversarial document and question tests; do not infer security from prompt wording.
+Reproduce the [ten-question pilot](evidence/regulatory-rag-validation-2026-11-09.md):
+
+```bash
+python eval_smoke.py --retrieval-only
+python eval_smoke.py   # requires an existing Azure OpenAI deployment
+```
+
+Both modes save a JSON report under `.local/`. The Azure mode reports citation hits, abstention and token usage. Review each claim against its quote before counting it as supported. To go beyond the pilot, expand to 30–50 expert-reviewed questions and add adversarial document and question tests.
 
 ## Cost and shutdown
 

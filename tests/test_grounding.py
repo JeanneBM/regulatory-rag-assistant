@@ -116,3 +116,24 @@ def test_truncated_or_filtered_reply_is_an_error(azure, content, finish_reason):
     chunk = parse(f"<p>Article 1</p><p>{BODY}</p>")[0]
     with pytest.raises(ValueError, match=finish_reason):
         rag.answer("question", [chunk])
+
+def test_cellar_article_title_is_not_a_citation_and_continuation_body_is(azure):
+    first = parse(f"<p>Article 6</p><p>ICT risk management framework</p><p>{BODY}</p>", "DORA")[0]
+    first["celex"] = "32022R2554"
+    continuation = dict(first, id="DORA-art-6-part-2", text=f"Article 6\n{BODY}")
+    excerpts = rag.citation_excerpts([first, continuation])
+    assert list(excerpts.values()) == [
+        {"source_id": first["id"], "quote": BODY.strip()},
+        {"source_id": continuation["id"], "quote": BODY.strip()},
+    ]
+    azure(json.dumps({"claims": [{"statement": "Statement.", "excerpt_id": "E3"}]}))
+    with pytest.raises(ValueError, match="unknown evidence excerpt"):
+        rag.answer("Question?", [first, continuation])
+
+
+def test_generation_rejects_more_than_three_claims(azure):
+    chunk = parse(f"<p>Article 1</p><p>{BODY}</p>")[0]
+    payload = {"claims": [{"statement": "Statement.", "excerpt_id": "E1"}] * 4}
+    azure(json.dumps(payload))
+    with pytest.raises(ValueError, match="more than 3 claims"):
+        rag.answer("Question?", [chunk])

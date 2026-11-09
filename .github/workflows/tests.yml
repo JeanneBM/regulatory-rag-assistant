@@ -16,4 +16,4 @@ jobs:
           cache: pip
       - run: pip install -r requirements-langchain.txt
       - run: python -m pytest -q
-      - run: python -m compileall -q rag.py app.py langchain_rag.py
+      - run: python -m compileall -q rag.py app.py langchain_rag.py eval_smoke.py
