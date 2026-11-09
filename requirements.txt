@@ -1,6 +1,6 @@
 beautifulsoup4>=4.12,<5
 requests>=2.34.2,<3
 scikit-learn>=1.5,<2
-openai>=1.55,<3
+openai>=3.46.0,<4
 streamlit>=1.40,<2
 pytest>=9.2.0,<10
