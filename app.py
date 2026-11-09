@@ -1,17 +1,26 @@
 import streamlit as st
-from rag import answer, load_corpus, retrieve
+from rag import ACTS, DATA, answer, load_corpus, retrieve
 
 st.set_page_config(page_title="Regulatory RAG Assistant")
 st.title("Regulatory RAG Assistant")
-st.caption("AI Act and DORA · original published acts · research PoC")
+st.caption(f"{', '.join(ACTS)} · original published acts · research PoC")
 st.info("Sources are pinned snapshots, not a guarantee of current law. "
         "Amendments, annexes and delegated acts are outside this first release.")
-act = st.selectbox("Source filter", ["All", "AI_ACT", "DORA"])
+try:
+    first_run = not DATA.exists()
+    with st.spinner("Downloading the acts from the EU Publications Office"
+                    if first_run else "Loading sources"):
+        corpus = load_corpus()
+except Exception as exc:  # network, parsing or coverage failure
+    st.error(f"Could not prepare the corpus: {exc}")
+    st.stop()
+
+act = st.selectbox("Source filter", ["All", *ACTS])
 question = st.text_area("Question", placeholder="What does DORA say about ICT risk management?")
 if st.button("Search", disabled=not question.strip()):
     try:
         with st.spinner("Retrieving evidence"):
-            evidence = retrieve(question, load_corpus(), None if act == "All" else act)
+            evidence = retrieve(question, corpus, None if act == "All" else act)
             result = answer(question, evidence)
         st.write("Status:", result["status"])
         if result["status"] == "retrieval_only":
