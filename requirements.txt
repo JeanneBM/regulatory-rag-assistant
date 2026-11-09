@@ -4,3 +4,4 @@ scikit-learn>=1.5,<2
 openai>=1.55,<3
 streamlit>=1.40,<2
 pytest>=8,<10
+playwright>=1.51,<2

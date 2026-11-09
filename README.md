@@ -24,7 +24,6 @@ Python 3.11+:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python rag.py ingest
 python rag.py ask "What does DORA say about ICT risk management?"
 streamlit run app.py --server.address 127.0.0.1
 ```
@@ -39,7 +38,19 @@ For generated answers, set environment variables shown in `.env.example` in your
 
 Official allowlisted source URLs → validated article extraction → local JSON corpus → lexical retrieval → optional model response → source/quote checks → UI or CLI.
 
-`python rag.py ingest` explicitly refreshes both source snapshots. A failed import leaves the existing corpus intact. Redirects and incomplete article coverage fail closed; EUR-Lex challenge pages may require investigation. Original HTML is fingerprinted after text decoding; the digest identifies the fetched response text, not a legal version identifier.
+The first CLI question or Streamlit launch downloads both official English documents when the local corpus is missing. Later runs reuse the validated corpus. Run `python rag.py ingest` to explicitly refresh both snapshots. A failed refresh leaves the previous corpus intact.
+
+If an official endpoint returns HTTP 202, another error, or incomplete article coverage, the importer tries the official ELI and Publications Office endpoints. Redirects are limited to allowlisted EU HTTPS hosts. If those HTTP downloads fail, the importer tries to render the EUR-Lex page with installed Chrome or Edge in a separate headless session. Playwright is installed with the project dependencies. If all automated sources are unavailable, saved official HTML remains available as an offline recovery option:
+
+```bash
+python rag.py ingest --ai-act-html "$HOME/Downloads/ai-act.html" --dora-html "$HOME/Downloads/dora.html"
+```
+
+[AI Act HTML](https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32024R1689) · [DORA HTML](https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32022R2554)
+
+Local imports retain the official citation URL, record `import_method: local_html`, and pass the same article coverage checks. Use unedited copies saved from the official pages. A local import does not authenticate the file against EUR-Lex.
+
+Original HTML is fingerprinted after text decoding; the digest identifies the fetched response text, not a legal version identifier.
 
 The parser excludes annexes and signatures from the final article. It retains paragraphs as text but does not assign paragraph identifiers. Each response can be traced to a corpus chunk.
 
