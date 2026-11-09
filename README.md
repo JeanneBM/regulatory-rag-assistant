@@ -41,11 +41,11 @@ Official allowlisted source URLs → validated article extraction → local JSON
 
 `python rag.py ingest` explicitly refreshes both source snapshots. A failed import leaves the existing corpus intact. Redirects and incomplete article coverage fail closed; EUR-Lex challenge pages may require investigation. Original HTML is fingerprinted after text decoding; the digest identifies the fetched response text, not a legal version identifier.
 
-The parser excludes annexes and signatures from the final article. It retains paragraphs as text but does not assign paragraph identifiers. Each response can be traced to a corpus chunk.
+The parser excludes annexes and signatures from the final article. Text is extracted as one whitespace-normalised line per block element, so links, spans and footnote markers stay inside their sentence and cannot be mistaken for article headings. Long articles are split between paragraphs (or between words inside an oversized paragraph) into chunks of about 3000 characters, and each continuation chunk repeats the article heading. Paragraphs are not assigned identifiers. Each response can be traced to a corpus chunk.
 
 ## Evidence boundaries
 
-Exact citation validation checks provenance and quotation integrity. It does **not** prove that a generated statement follows from the quote, nor prevent every prompt injection. Retrieved documents and questions are treated as untrusted input.
+Exact citation validation checks provenance and quotation integrity. Quotes are compared after Unicode NFKC normalisation, straight-quote substitution and whitespace collapsing, so layout differences do not reject a genuine quote; wording, punctuation and word order must still match, and one invalid claim rejects the whole answer. Truncated or content-filtered model replies are errors, not refusals. Validation does **not** prove that a generated statement follows from the quote, nor prevent every prompt injection. Retrieved documents and questions are treated as untrusted input.
 
 A positive retrieval score is not confidence. The 0.05 threshold is a provisional lexical cutoff requiring calibration. The application abstains for missing evidence and rejects malformed generated citations.
 
@@ -57,7 +57,7 @@ Original published acts are not a current consolidated legal corpus. Retrieval t
 python -m pytest -q
 ```
 
-Offline tests cover relevant retrieval, unrelated queries, source filtering, fabricated citations/quotes, empty-evidence abstention and parsing. GitHub Actions runs tests on pushes and pull requests.
+Offline tests cover relevant retrieval, unrelated queries, source filtering, fabricated citations/quotes, empty-evidence abstention, parsing of inline markup and long articles, quote normalisation, the generation path with a stubbed client (including truncated and filtered replies) and stale semantic indexes. GitHub Actions runs tests on pushes and pull requests, with actions pinned to commit SHAs and Dependabot proposing updates.
 
 Before calling this a validated RAG system:
 1. Run live ingestion and inspect coverage and article boundaries.
@@ -106,7 +106,8 @@ The index stores vectors, chunk text, metadata, deployment name and corpus hash 
 .local/semantic-index.json. It uses JSON rather than pickle. Documents are embedded
 once per explicit index command; query commands reconstruct FAISS from saved vectors.
 Use only your own index artifacts. Rebuild after corpus refresh, or any embedding
-model, deployment or endpoint change (deployment-name changes are checked automatically).
+model, deployment or endpoint change. Deployment-name and corpus changes are checked
+automatically: `ask` refuses an index built from a different corpus snapshot.
 
 Retrieval normalizes vectors and uses squared L2 distance, converted to cosine
 similarity. The default maximum distance 0.8 (cosine similarity at least 0.6) is

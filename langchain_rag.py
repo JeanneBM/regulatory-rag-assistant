@@ -52,6 +52,10 @@ def split_documents(chunks):
     return documents
 
 
+def corpus_digest(chunks):
+    return hashlib.sha256(json.dumps(chunks, sort_keys=True).encode()).hexdigest()
+
+
 def build_index(chunks, embedding, path=INDEX, embedding_id=None):
     documents = split_documents(chunks)
     if not documents:
@@ -59,7 +63,7 @@ def build_index(chunks, embedding, path=INDEX, embedding_id=None):
     vectors = embedding.embed_documents([d.page_content for d in documents])
     payload = {
         "embedding_id": embedding_id,
-        "corpus_sha256": hashlib.sha256(json.dumps(chunks, sort_keys=True).encode()).hexdigest(),
+        "corpus_sha256": corpus_digest(chunks),
         "documents": [{"text": d.page_content, "metadata": d.metadata, "vector": v}
                       for d, v in zip(documents, vectors, strict=True)],
     }
@@ -71,10 +75,13 @@ def build_index(chunks, embedding, path=INDEX, embedding_id=None):
     return len(documents)
 
 
-def load_index(embedding, path=INDEX, embedding_id=None):
+def load_index(embedding, path=INDEX, embedding_id=None, corpus=None):
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if payload["embedding_id"] != embedding_id:
         raise ValueError("Embedding deployment changed; rebuild the index")
+    # A refreshed corpus would otherwise be answered from stale vectors and text.
+    if corpus is not None and payload.get("corpus_sha256") != corpus_digest(corpus):
+        raise ValueError("Corpus changed since indexing; rebuild the index")
     rows = payload["documents"]
     # Reconstruct FAISS from saved vectors without re-embedding documents.
     return FAISS.from_embeddings(
@@ -147,8 +154,8 @@ def main():
         print(f"Indexed {build_index(load_corpus(), embedding, embedding_id=deployment)} chunks")
     else:
         start = perf_counter()
-        evidence = retrieve(args.question, load_index(embedding, embedding_id=deployment),
-                            args.act, max_distance=args.max_distance)
+        store = load_index(embedding, embedding_id=deployment, corpus=load_corpus())
+        evidence = retrieve(args.question, store, args.act, max_distance=args.max_distance)
         result = answer(args.question, evidence)
         result["elapsed_seconds"] = perf_counter() - start
         print(json.dumps(result, ensure_ascii=False, indent=2))
