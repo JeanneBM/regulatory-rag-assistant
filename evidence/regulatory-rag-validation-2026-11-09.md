@@ -27,3 +27,33 @@ Environment: Windows, Git Bash, Python CLI, Azure OpenAI GPT-4.1 mini.
 - **Usage:** 3,200 input tokens and 154 output tokens, 3,354 total.
 
 This is a smoke test of one Azure-backed answer. It does not measure answer quality across a question set. The out-of-scope result above was tested in retrieval-only mode.
+
+## Ten-question Azure pilot
+
+Date: 9 November 2026. Eight questions with predefined target articles and two out-of-scope controls, run with [`eval_smoke.py`](../eval_smoke.py) against the official AI Act and DORA corpus. One run per question.
+
+| Check | Result |
+| --- | --- |
+| Expected article retrieved in the top five | 8/8 |
+| Expected article cited in the answer | 8/8 |
+| Verbatim quotations found in the cited retrieved chunk | 23/23 |
+| Correct abstentions | 2/2: one with no retrieved evidence and one with related but insufficient evidence |
+| Reported token usage | 30,153 input + 1,153 output = 31,306 total |
+
+Manual review compared each statement with its selected quote and, where necessary, surrounding text in the supplied corpus. Finding a quotation verbatim is a provenance check. It does not establish support for every part of the statement.
+
+| Case | Manual review |
+| --- | --- |
+| D01 · DORA Art. 5 | The second quote supports ultimate responsibility but does not itself support the additional statement about data protection policies. |
+| D02 · DORA Art. 6 | The cited paragraphs support the main points. The summary omits testing conclusions as an additional review trigger. |
+| D03 · DORA Art. 11 | The third quote establishes the general continuity policy. The detailed objectives in the claim need the following paragraph. |
+| D04 · DORA Art. 17 | The main points are supported. The third claim omits the qualifier “as appropriate” for information provided to counterparties. |
+| A01 · AI Act Art. 4 | The primary answer is supported. The extra Article 95 quote names an AI literacy goal without establishing the actors attributed in the statement. |
+| A02 · AI Act Art. 5 | The first quote stops before the condition it relies on. The third statement overgeneralizes the prohibition by omitting both harmful-treatment conditions. |
+| A03 · AI Act Art. 50 | The main disclosure point is supported. The answer adds other duties and omits relevant scope and exception details. |
+| A04 · AI Act Art. 53 | The documentation claim is supported. The selected quote for the second claim stops before the Annex XII requirement, and the answer does not address the applicable open-source exception. |
+| N01 and N02 | Both returned no claims. N02 reached the abstention path after retrieval. |
+
+Anonymized input and run files retain official source identifiers and reduce exact timestamps to UTC dates. SHA-256 of the anonymized corpus: `3c26effe2d604733ecf84c82c4f36b58ae439b39f6fb9216225a26a72992692f`. SHA-256 of the anonymized run: `66af62b055c6daadd75cebe1a3ab34cec2098a65eb09d50ad3081a782882c33c`.
+
+This pilot separates article retrieval, quotation provenance and semantic support. Its small curated sample does not establish production quality or legal compliance.
