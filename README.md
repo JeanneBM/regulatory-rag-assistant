@@ -39,7 +39,17 @@ For generated answers, set environment variables shown in `.env.example` in your
 
 Official allowlisted source URLs → validated article extraction → local JSON corpus → lexical retrieval → optional model response → source/quote checks → UI or CLI.
 
-`python rag.py ingest` explicitly refreshes both source snapshots. A failed import leaves the existing corpus intact. Redirects and incomplete article coverage fail closed; EUR-Lex challenge pages may require investigation. Original HTML is fingerprinted after text decoding; the digest identifies the fetched response text, not a legal version identifier.
+`python rag.py ingest` explicitly refreshes both source snapshots. A failed import leaves the existing corpus intact. Redirects and incomplete article coverage fail closed. If EUR-Lex returns HTTP 202 or blocks scripted access, open the official English original in a browser and save the actual document as HTML (not a challenge page or PDF). Pass either or both saved files, as needed:
+
+```bash
+python rag.py ingest --ai-act-html "$HOME/Downloads/ai-act.html" --dora-html "$HOME/Downloads/dora.html"
+```
+
+[AI Act HTML](https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32024R1689) · [DORA HTML](https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32022R2554)
+
+Local imports retain the official citation URL, record `import_method: local_html`, and pass the same article coverage checks. Use unedited copies saved from the official pages. A local import does not authenticate the file against EUR-Lex.
+
+Original HTML is fingerprinted after text decoding; the digest identifies the fetched response text, not a legal version identifier.
 
 The parser excludes annexes and signatures from the final article. It retains paragraphs as text but does not assign paragraph identifiers. Each response can be traced to a corpus chunk.
 

@@ -41,3 +41,34 @@ def test_parser_preserves_article_and_excludes_annex():
 def test_invalid_source_rejected():
     with pytest.raises(ValueError):
         parse_articles("<p>Please verify you are human</p>", "DORA", "url", "date")
+
+@pytest.mark.parametrize("complete", [True, False])
+def test_saved_eurlex_html_uses_coverage_guard(monkeypatch, tmp_path, complete):
+    import rag
+
+    def saved_act(name, count):
+        path = tmp_path / name
+        path.write_text("".join(f"<p>Article {i}</p><p>{'Article text. ' * 10}</p>"
+                                for i in range(1, count + 1)), encoding="utf-8")
+        return path
+
+    def no_network(*args, **kwargs):
+        pytest.fail("Local HTML import attempted a network request")
+
+    corpus = tmp_path / "corpus.json"
+    corpus.write_text("previous corpus", encoding="utf-8")
+    monkeypatch.setattr(rag, "DATA", corpus)
+    monkeypatch.setattr(rag.requests, "get", no_network)
+    ai_act = saved_act("ai-act.html", 113)
+    dora = saved_act("dora.html", 64 if complete else 63)
+    if not complete:
+        with pytest.raises(ValueError, match="DORA: incomplete article coverage"):
+            rag.ingest(ai_act_html=ai_act, dora_html=dora)
+        assert corpus.read_text(encoding="utf-8") == "previous corpus"
+        return
+
+    assert rag.ingest(ai_act_html=ai_act, dora_html=dora) == 177
+    chunk = rag.load_corpus()[-1]
+    assert chunk["import_method"] == "local_html"
+    assert chunk["url"] == rag.SOURCES["DORA"]
+    assert "imported_at" in chunk

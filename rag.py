@@ -59,14 +59,29 @@ def parse_articles(html, act, url, fetched_at):
     return chunks
 
 
-def ingest():
+def ingest(*, ai_act_html=None, dora_html=None):
+    local_sources = {"AI_ACT": ai_act_html, "DORA": dora_html}
     chunks = []
     now = datetime.now(timezone.utc).isoformat()
     for act, url in SOURCES.items():
-        response = requests.get(url, timeout=60, allow_redirects=False)
-        if response.status_code != 200:
-            raise RuntimeError(f"{act}: HTTP {response.status_code}; import stopped")
-        parsed = parse_articles(response.text, act, url, now)
+        local_path = local_sources[act]
+        if local_path is not None:
+            html = local_path.read_text(encoding="utf-8-sig")
+        else:
+            response = requests.get(url, timeout=60, allow_redirects=False)
+            if response.status_code != 200:
+                option = "--ai-act-html" if act == "AI_ACT" else "--dora-html"
+                raise RuntimeError(
+                    f"{act}: HTTP {response.status_code}; import stopped. "
+                    f"Open {url} in a browser, save the English HTML, "
+                    f"then run ingest with {option} PATH."
+                )
+            html = response.text
+        parsed = parse_articles(html, act, url, now)
+        if local_path is not None:
+            for chunk in parsed:
+                chunk["import_method"] = "local_html"
+                chunk["imported_at"] = chunk.pop("fetched_at")
         # Fail closed on partial pages or unexpected document structure.
         expected = 113 if act == "AI_ACT" else 64
         numbers = {c["article"] for c in parsed}
@@ -154,9 +169,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["ingest", "ask"])
     parser.add_argument("question", nargs="?", default="")
+    parser.add_argument("--ai-act-html", type=Path, help="Saved English EUR-Lex AI Act HTML")
+    parser.add_argument("--dora-html", type=Path, help="Saved English EUR-Lex DORA HTML")
     args = parser.parse_args()
     if args.command == "ingest":
-        print(f"Indexed {ingest()} chunks")
+        try:
+            count = ingest(ai_act_html=args.ai_act_html, dora_html=args.dora_html)
+        except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
+            parser.exit(1, f"Import failed: {exc}\n")
+        print(f"Indexed {count} chunks")
+    elif args.ai_act_html is not None or args.dora_html is not None:
+        parser.error("local HTML options are only supported with ingest")
     else:
         if not args.question.strip():
             parser.error("ask requires a question")

@@ -24,6 +24,8 @@ if st.button("Search", disabled=not question.strip()):
             with st.expander(f'{chunk["id"]} · score {chunk["score"]:.3f}'):
                 st.text(chunk["text"])
                 st.link_button("Official source", chunk["url"])
-                st.caption(f'Fetched: {chunk["fetched_at"]} · SHA256: {chunk["sha256"]}')
+                timestamp = chunk.get("imported_at")
+                label = "Imported" if timestamp else "Fetched"
+                st.caption(f'{label}: {timestamp or chunk["fetched_at"]} · SHA256: {chunk["sha256"]}')
     except Exception:
         st.error("Request failed. Check corpus import and provider configuration in your local terminal.")
