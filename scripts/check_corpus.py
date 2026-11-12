@@ -63,7 +63,9 @@ def main() -> int:
         "split_parts": sum("-part-" in u["id"] for u in units),
         "duplicate_markers": sum("-dup" in u["id"] for u in units),
     }
-    notice(f"unit shapes: {json.dumps(shapes)}")
+    unusual = [u for u in units if "-pt-row" in u["id"] or "-dup" in u["id"]]
+    notice(f"unit shapes: {json.dumps(shapes)}; unusual: "
+           + " | ".join(f"{u['id']}: {u['text'][:160]}" for u in unusual[:6]))
     longest = max(units, key=lambda u: len(u["text"]))
     notice(f"corpus {manifest['corpus_sha256'][:12]}: {len(units)} units; longest {longest['id']} "
            f"({len(longest['text'])} chars); sample ids: "
