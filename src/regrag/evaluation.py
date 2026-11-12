@@ -49,6 +49,7 @@ def run_case(assistant, case: dict, retrieval_only: bool) -> dict:
         status=result["status"],
         retrieved=[e["id"] for e in result["evidence"]],
         expected_retrieved=(expected in retrieved) if expected else None,
+        expected_rank=(retrieved.index(expected) + 1) if expected in retrieved else None,
         claims=[{"citation": c["citation"], "statement": c["statement"], "support": c["support"],
                  "support_note": c["support_note"], "quote": c["quote"]} for c in result["claims"]],
         rejected_claims=[{"citation": c["citation"], "statement": c["statement"],
@@ -85,6 +86,7 @@ def summarise(rows: list[dict], retrieval_only: bool = False) -> dict:
     return {
         "checks": dict(Counter(r["check"] for r in rows)),
         "expected_article_retrieved": f"{sum(bool(r.get('expected_retrieved')) for r in answerable)}/{len(answerable)}",
+        "expected_article_ranked_first": f"{sum(r.get('expected_rank') == 1 for r in answerable)}/{len(answerable)}",
         # Citation and abstention need generation; retrieval-only runs cannot measure them.
         "expected_article_cited": "n/a" if retrieval_only else f"{cited}/{len(answerable)}",
         "correct_abstentions": "n/a" if retrieval_only else f"{abstained}/{len(controls)}",
@@ -102,6 +104,7 @@ def markdown(report: dict) -> str:
         f"# Pilot run {report['utc'][:10]} ({report['mode']}, {report['backend']})", "",
         "| Check | Result |", "| --- | --- |",
         f"| Expected article retrieved | {s['expected_article_retrieved']} |",
+        f"| Expected article ranked first | {s['expected_article_ranked_first']} |",
         f"| Expected article cited | {s['expected_article_cited']} |",
         f"| Correct abstentions | {s['correct_abstentions']} |",
         f"| Verifier labels | {s['claim_support_labels']} |",

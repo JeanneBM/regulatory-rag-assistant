@@ -3,7 +3,7 @@
 A citable unit is the smallest piece of text an answer may quote:
 
 * a numbered paragraph without points, e.g. "Article 6(1)";
-* the lead-in of a paragraph together with one point and all its sub-points,
+* the text introducing a list of points together with one point and all its sub-points,
   e.g. "Article 5(1), point (c)". Conditions in sub-points (i), (ii) therefore
   always travel with the point they qualify;
 * text that follows a list of points inside the same paragraph.
@@ -224,7 +224,7 @@ def _article_units(act: Act, article: str, body: list[Block], url: str) -> list[
             unit_id = base + (f"-part-{index}" if len(parts) > 1 else "")
             original, counter = unit_id, 2
             while unit_id in seen:
-                unit_id, counter = f"{original}-{counter}", counter + 1
+                unit_id, counter = f"{original}-dup{counter}", counter + 1
             seen.add(unit_id)
             units.append({
                 "id": unit_id, "act": act.key, "celex": act.celex, "article": article,
@@ -234,27 +234,24 @@ def _article_units(act: Act, article: str, body: list[Block], url: str) -> list[
             })
 
     for paragraph in paragraphs:
-        rows = [item for item in paragraph.items if isinstance(item, _Row)]
-        if not rows:
+        if not any(isinstance(item, _Row) for item in paragraph.items):
             emit(paragraph.number, None, list(paragraph.items), "")
             continue
-        first_row = paragraph.items.index(rows[0])
-        lead = list(paragraph.items[:first_row])
-        tail_runs, run = [], []
-        for row_index, item in enumerate(paragraph.items[first_row:]):
+        # Each list of points is quoted with the text run directly above it, so a
+        # quotation never joins lines that are not adjacent in the act.
+        lead, run, tails = [], [], 0
+        for row_index, item in enumerate(paragraph.items):
             if isinstance(item, _Row):
                 if run:
-                    tail_runs.append(run)
-                    run = []
+                    lead, run = run, []
                 marker = item.marker
                 safe = re.sub(r"[^A-Za-z0-9]", "", marker) if marker else f"row{row_index}"
                 emit(paragraph.number, marker, lead + item.render(), f"-pt-{safe}")
             else:
                 run.append(item)
         if run:
-            tail_runs.append(run)
-        for tail_index, tail in enumerate(tail_runs, 1):
-            emit(paragraph.number, None, tail, f"-text-{tail_index}")
+            tails += 1
+            emit(paragraph.number, None, run, f"-text-{tails}")
     return units
 
 

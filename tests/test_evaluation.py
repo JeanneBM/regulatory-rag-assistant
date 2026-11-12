@@ -26,6 +26,8 @@ def test_retrieval_only_run_reports_hits_and_writes_files(tmp_path):
     assert code == 0
     assert report["summary"]["checks"] == {"retrieval_hit": 1, "no_evidence": 1}
     assert report["summary"]["expected_article_retrieved"] == "1/1"
+    assert report["summary"]["expected_article_ranked_first"] == "1/1"
+    assert report["summary"]["correct_abstentions"] == "n/a"
     saved = json.loads(Path(report["files"][0]).read_text())
     assert saved["cases"][0]["retrieved"] == ["DORA-art-6-par-1"]
     assert "Manual review" in Path(report["files"][1]).read_text()

@@ -44,6 +44,18 @@ def test_point_units_carry_lead_in_and_sub_point_conditions():
     assert "(i)" not in by_label["Article 1(1), point (a)"]["text"]
 
 
+def test_repeated_point_lists_in_one_paragraph_get_unique_ids():
+    body = ("<div><p class='oj-normal'>1.   Financial entities shall:</p>"
+            + point_table([("a", "identify risks;"), ("b", "document them;")])
+            + "<p class='oj-normal'>In addition, they shall:</p>"
+            + point_table([("a", "report incidents;")]) + "</div>")
+    units = parse(body)
+    assert [u["id"] for u in units] == ["DORA-art-1-par-1-pt-a", "DORA-art-1-par-1-pt-b",
+                                        "DORA-art-1-par-1-pt-a-dup2"]
+    assert units[2]["text"] == "In addition, they shall:\n(a) report incidents;"
+    assert units[0]["text"] == "1. Financial entities shall:\n(a) identify risks;"
+
+
 def test_unnumbered_article_and_inline_markup_stay_in_sentence():
     body = ("<p class='oj-normal'>Providers <span class='oj-italic'>shall</span> take measures"
             "<span class='oj-super'><a>(1)</a></span> referred to in <a href='#'>Article 6</a>."

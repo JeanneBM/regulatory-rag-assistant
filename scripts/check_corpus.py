@@ -57,6 +57,13 @@ def main() -> int:
     for label in [("DORA", "Article 6(1)"), ("DORA", "Article 17(1)"), ("AI_ACT", "Article 50(1)")]:
         if label not in by_label:
             failures.append(f"Missing citable unit {label}")
+    shapes = {
+        "unmarked_rows": sum("-pt-row" in u["id"] for u in units),
+        "text_after_points": sum("-text-" in u["id"] for u in units),
+        "split_parts": sum("-part-" in u["id"] for u in units),
+        "duplicate_markers": sum("-dup" in u["id"] for u in units),
+    }
+    notice(f"unit shapes: {json.dumps(shapes)}")
     longest = max(units, key=lambda u: len(u["text"]))
     notice(f"corpus {manifest['corpus_sha256'][:12]}: {len(units)} units; longest {longest['id']} "
            f"({len(longest['text'])} chars); sample ids: "
