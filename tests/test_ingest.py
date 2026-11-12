@@ -1,89 +1,83 @@
 import json
-from types import SimpleNamespace
 
 import pytest
 
-import rag
-
-XHTML = "application/xhtml+xml;charset=UTF-8"
-
-
-def act_html(count):
-    return "".join(f"<p class='oj-ti-art'>Article {i}</p><p>{'Article text. ' * 10}</p>"
-                   for i in range(1, count + 1))
+from conftest import EXTRA_ACTS, FakeCellar, act_document
+from regrag import ingest
+from regrag.cellar import SourceError, fetch_act
+from regrag.parser import ParseError
+from regrag.sources import ACTS, CELLAR_HOST
+from regrag.storage import LocalCorpusStore
 
 
-class Cellar:
-    """Fake Publications Office: 303 from the CELEX resource to a plain-HTTP item."""
-
-    def __init__(self, counts=None, status=200, location=None, content_type=XHTML):
-        self.counts = counts or {a: m["articles"] for a, m in rag.ACTS.items()}
-        self.status, self.location, self.content_type = status, location, content_type
-        self.calls = []
-
-    def item(self, celex):
-        return f"https://{rag.CELLAR_HOST}/resource/cellar/{celex}.0006.03/DOC_1"
-
-    def __call__(self, url, headers=None, **kwargs):
-        self.calls.append(url)
-        assert headers["Accept"] == "application/xhtml+xml" and headers["Accept-Language"] == "eng"
-        for act, meta in rag.ACTS.items():
-            celex = meta["celex"]
-            if url == rag.CELLAR_URL.format(celex=celex):
-                target = self.location or self.item(celex).replace("https://", "http://")
-                return SimpleNamespace(status_code=303, headers={"Location": target}, text="")
-            if url == self.item(celex):
-                return SimpleNamespace(status_code=self.status, text=act_html(self.counts[act]),
-                                       headers={"Content-Type": self.content_type})
-        raise AssertionError(f"unexpected request {url}")
+def test_fetch_upgrades_cellar_redirects_to_https(cellar):
+    document = fetch_act(ACTS["DORA"])
+    assert all(call.startswith(f"https://{CELLAR_HOST}/") for call in cellar.calls)
+    assert document.fetched_from == FakeCellar.item("32022R2554")
+    assert len(document.sha256) == 64
 
 
-@pytest.fixture
-def corpus(monkeypatch, tmp_path):
-    path = tmp_path / "corpus.json"
-    monkeypatch.setattr(rag, "DATA", path)
-    return path
-
-
-def install(monkeypatch, cellar):
-    monkeypatch.setattr(rag.requests, "get", cellar)
-    return cellar
-
-
-def test_ingest_downloads_every_act_from_cellar_over_https(monkeypatch, corpus):
-    cellar = install(monkeypatch, Cellar())
-    assert rag.ingest() == 113 + 64
-    assert all(call.startswith(f"https://{rag.CELLAR_HOST}/") for call in cellar.calls)
-    chunks = json.loads(corpus.read_text(encoding="utf-8"))
-    dora = next(c for c in chunks if c["act"] == "DORA")
-    assert dora["url"] == rag.SOURCES["DORA"]  # citation link stays on EUR-Lex
-    assert dora["fetched_from"] == cellar.item("32022R2554")
-    assert dora["celex"] == "32022R2554"
-
-
-@pytest.mark.parametrize("cellar, error", [
-    (Cellar(location="https://example.com/DOC_1"), "redirect outside"),
-    (Cellar(status=202), "HTTP 202"),
-    (Cellar(content_type="application/pdf"), "content type"),
-    (Cellar(counts={"AI_ACT": 113, "DORA": 63}), "DORA: incomplete article coverage"),
+@pytest.mark.parametrize("fake, error", [
+    (FakeCellar(location="https://example.com/DOC_1"), "redirect outside"),
+    (FakeCellar(status=202), "HTTP 202"),
+    (FakeCellar(content_type="application/pdf"), "content type"),
 ])
-def test_failed_import_keeps_previous_corpus(monkeypatch, corpus, cellar, error):
-    corpus.write_text("previous corpus", encoding="utf-8")
-    install(monkeypatch, cellar)
-    with pytest.raises((ValueError, RuntimeError), match=error):
-        rag.ingest()
-    assert corpus.read_text(encoding="utf-8") == "previous corpus"
+def test_fetch_fails_closed(monkeypatch, fake, error):
+    monkeypatch.setattr("regrag.cellar.requests.get", fake)
+    with pytest.raises(SourceError, match=error):
+        fetch_act(ACTS["DORA"])
 
 
-def test_first_use_downloads_once_and_new_acts_join_automatically(monkeypatch, corpus):
-    cellar = install(monkeypatch, Cellar())
-    assert len(rag.load_corpus()) == 177
-    requests_made = len(cellar.calls)
-    assert len(rag.load_corpus()) == 177
-    assert len(cellar.calls) == requests_made  # reuses the stored corpus
+def test_ingest_stores_raw_sources_corpus_and_manifest(cellar, tmp_path):
+    store = LocalCorpusStore(tmp_path)
+    manifest = ingest.run_ingest(store, log=lambda _: None)
+    assert manifest["units"] == 2 * (113 + 64)
+    assert set(manifest["acts"]) == {"AI_ACT", "DORA"}
+    dora = manifest["acts"]["DORA"]
+    assert dora["fetched_from"] == FakeCellar.item("32022R2554")
+    assert (tmp_path / "raw" / "32022R2554" / f"{dora['source_sha256']}.xhtml").exists()
+    active_manifest, units = store.active()
+    assert active_manifest["corpus_sha256"] == manifest["corpus_sha256"]
+    assert units[0]["source_sha256"] and units[0]["version"] == "original published act"
+    assert all("fetched_at" not in u for u in units)
 
-    monkeypatch.setitem(rag.ACTS, "NIS2", {"celex": "32022L2555", "articles": 46})
-    cellar.counts["NIS2"] = 46
-    chunks = rag.load_corpus()
-    assert {c["act"] for c in chunks} == {"AI_ACT", "DORA", "NIS2"}
-    assert len(cellar.calls) > requests_made
+
+def test_corpus_digest_ignores_fetch_time(cellar, tmp_path):
+    first = ingest.run_ingest(LocalCorpusStore(tmp_path / "a"), log=lambda _: None)
+    second = ingest.run_ingest(LocalCorpusStore(tmp_path / "b"), log=lambda _: None)
+    assert first["corpus_sha256"] == second["corpus_sha256"]
+
+
+def test_failed_import_keeps_previous_corpus(monkeypatch, cellar, tmp_path):
+    store = LocalCorpusStore(tmp_path)
+    previous = ingest.run_ingest(store, log=lambda _: None)
+    cellar.documents["DORA"] = act_document(63)
+    with pytest.raises(ParseError, match="DORA: incomplete article coverage"):
+        ingest.run_ingest(store, log=lambda _: None)
+    assert store.active()[0]["corpus_sha256"] == previous["corpus_sha256"]
+
+
+def test_failed_indexing_does_not_activate_corpus(cellar, tmp_path):
+    class Broken:
+        def publish(self, units, digest):
+            raise RuntimeError("search unavailable")
+
+    store = LocalCorpusStore(tmp_path)
+    with pytest.raises(RuntimeError, match="search unavailable"):
+        ingest.run_ingest(store, publisher=Broken(), log=lambda _: None)
+    assert store.active() is None
+
+
+def test_first_use_imports_once_and_new_acts_join_automatically(monkeypatch, cellar, tmp_path):
+    store = LocalCorpusStore(tmp_path)
+    _, units = ingest.ensure_local_corpus(store, log=lambda _: None)
+    calls = len(cellar.calls)
+    assert len(ingest.ensure_local_corpus(store, log=lambda _: None)[1]) == len(units)
+    assert len(cellar.calls) == calls  # stored corpus re-used
+
+    monkeypatch.setitem(ACTS, "NIS2", EXTRA_ACTS["NIS2"])
+    cellar.documents["NIS2"] = act_document(46)
+    manifest, units = ingest.ensure_local_corpus(store, log=lambda _: None)
+    assert {u["act"] for u in units} == {"AI_ACT", "DORA", "NIS2"}
+    assert len(cellar.calls) > calls
+    assert json.loads((tmp_path / "active.json").read_text())["acts"]["NIS2"]["celex"] == "32022L2555"

@@ -1,15 +1,16 @@
 name: Live ingest
-# Downloads the acts from the EU Publications Office, validates article coverage and
-# runs a retrieval smoke test. Catches upstream format or endpoint changes early.
+# Downloads the acts from the EU Publications Office, checks structure and article
+# coverage on the real text, and runs the retrieval-only pilot. Catches upstream
+# format or endpoint changes early.
 on:
   schedule:
     - cron: '17 5 * * 1'
   workflow_dispatch:
   pull_request:
-    paths: [rag.py, eval_smoke.py, requirements.txt, .github/workflows/live-ingest.yml]
+    paths: [src/regrag/**, eval/**, scripts/check_corpus.py, pyproject.toml, .github/workflows/live-ingest.yml]
   push:
     branches: [main]
-    paths: [rag.py, eval_smoke.py, requirements.txt, .github/workflows/live-ingest.yml]
+    paths: [src/regrag/**, eval/**, scripts/check_corpus.py, pyproject.toml, .github/workflows/live-ingest.yml]
 permissions:
   contents: read
 jobs:
@@ -22,28 +23,33 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: python rag.py ingest
-      - name: Summarise corpus and smoke-test retrieval
-        shell: bash
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[local]"
+      - run: python -m regrag ingest
+      - name: Check corpus structure
+        run: python scripts/check_corpus.py
+      - name: Ten-question pilot, retrieval only
+        run: python -m regrag eval --retrieval-only
+      - name: Pilot summary
+        if: always()
         run: |
-          python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
-          from rag import ACTS, load_corpus, retrieve
-          chunks = load_corpus()
-          print("| Act | CELEX | Articles | Chunks | Source |\n|---|---|---|---|---|")
-          for act, meta in ACTS.items():
-              own = [c for c in chunks if c["act"] == act]
-              print(f"| {act} | {meta['celex']} | {len({c['article'] for c in own})} | {len(own)} | {own[0]['fetched_from']} |")
-          hits = retrieve("ICT risk management framework", chunks, "DORA")
-          assert hits and hits[0]["article"] == "6", [h["id"] for h in hits]
-          print(f"\nSmoke test: top DORA hit for 'ICT risk management framework' is {hits[0]['id']}.")
-          EOF
-      - name: Run the ten-question pilot without Azure
-        run: python eval_smoke.py --retrieval-only
+          for f in .local/eval/*.md; do [ -f "$f" ] && cat "$f" >> "$GITHUB_STEP_SUMMARY"; done
+          python - <<'PY'
+          import glob, json
+          for path in sorted(glob.glob(".local/eval/*.json")):
+              report = json.load(open(path))
+              for case in report["cases"]:
+                  top = ", ".join(case.get("retrieved", [])[:3])
+                  print(f"::notice title=pilot {case['id']}::{case['check']}: {top}")
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
         with:
           name: corpus
-          path: .local/corpus.json
+          path: |
+            .local/active.json
+            .local/corpus/
+            .local/eval/
           retention-days: 30
