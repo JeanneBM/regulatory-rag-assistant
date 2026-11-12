@@ -7,6 +7,8 @@ The application runs on Azure: Azure AI Search does the retrieval, Container App
 > the system cited the expected article for 8/8 answerable questions and abstained on 2/2 controls. Manual review
 > found cases where a real quotation supported only part of a claim ([validation report](evidence/regulatory-rag-validation-2026-11-09.md)).
 > This version is designed around that finding (point-level quotations and claim-support verification).
+> On the real official texts it imports 113/113 AI Act and 64/64 DORA articles as 1,478 citable units
+> ([pre-deployment report](evidence/azure-stack-validation-2026-11-12.md)).
 > **It has not yet been evaluated against a live Azure deployment.** Run `regrag eval` after deploying and record
 > the result before quoting numbers for this version. The tool supports research. It does not give legal advice or assess compliance.
 
