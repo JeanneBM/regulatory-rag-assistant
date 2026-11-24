@@ -4,6 +4,29 @@ An evidence-grounded research PoC for exploring the EU AI Act and DORA. Retrieve
 
 **Status:** Demonstrated PoC. The EU Publications Office import runs live in CI weekly. The [Regulatory RAG validation report](evidence/regulatory-rag-validation-2026-11-09.md) records retrieval, a live Azure OpenAI smoke test, and a ten-question pilot with manual review. The pilot found gaps between some claims and their cited excerpts. Broader answer quality and legal compliance have not been established.
 
+## Architecture
+
+The default CLI/UI uses local TF-IDF retrieval. The separate optional LangChain CLI uses Azure embeddings and FAISS. Both validate source IDs and exact quotations; those checks do not establish semantic support for every claim.
+
+```mermaid
+flowchart TD
+  EU["EU Cellar: AI Act and DORA XHTML"] --> INGEST["Validated article extraction and chunking"]
+  subgraph LOCAL["Local application"]
+    INGEST --> CORPUS[("JSON corpus and source metadata")]
+    USER(("User")) --> ENTRY["CLI or Streamlit"]
+    CORPUS --> TFIDF["Default TF-IDF retrieval"]
+    ENTRY --> TFIDF
+    CORPUS --> LC["Optional LangChain CLI and FAISS index"]
+    TFIDF --> EVIDENCE["Retrieved excerpts"]
+    LC --> EVIDENCE
+    EVIDENCE --> CHECK["Source-ID and exact-quote validation"]
+    CHECK --> OUT["Cited answer, evidence only or abstention"]
+  end
+  LC -->|"index and query embeddings"| EMB["Azure OpenAI embeddings"]
+  EVIDENCE -->|"optional generation"| CHAT["Azure OpenAI chat"]
+  CHAT --> CHECK
+```
+
 ## Scope
 
 - AI Act: Regulation (EU) 2024/1689.
